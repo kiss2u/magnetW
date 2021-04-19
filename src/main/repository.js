@@ -1,10 +1,9 @@
 const format = require('./format-parser')
 const URI = require('urijs')
 const fs = require('fs')
-const request = require('request-promise-native')
-// const fs = require('fs')
+const createAxios = require('./axios')
 const cacheManager = require('./cache')
-const {initialize, isFilter} = require('./filter/filter')
+const {loadFilterData, isFilter} = require('./filter/filter')
 const xpath = require('xpath')
 const DOMParser = require('xmldom').DOMParser
 const htmlparser2 = require('htmlparser2')
@@ -24,11 +23,15 @@ const domParser = new DOMParser({
 
 let ruleMap = {}
 let config = null
+let request = null
 
 function applyConfig (newConfig) {
   config = newConfig
+  request = createAxios(newConfig)
 
-  initialize()
+  if (config.filterBare) {
+    loadFilterData()
+  }
 }
 
 function clearCache () {
@@ -61,30 +64,28 @@ function getRuleById (id) {
 
 async function requestDocument (url, clientHeaders) {
   const timeout = config.timeout || 10000
-  const proxyURL = getProxyURL(config)
 
   // header
   const uri = new URI(url)
   const host = uri.host()
   const origin = uri.origin()
   const headers = {
-    'Host': host,
-    'Origin': origin,
-    'Referer': origin
+    'host': host,
+    'origin': origin,
+    'referer': origin
   }
   const acceptLanguage = clientHeaders['accept-language']
-  headers['Accept-Language'] = acceptLanguage || 'zh-CN,zh-TW;q=0.9,zh;q=0.8,en;q=0.7,und;q=0.6,ja;q=0.5'
+  headers['accept-language'] = acceptLanguage || 'zh-CN,zh-TW;q=0.9,zh;q=0.8,en;q=0.7,und;q=0.6,ja;q=0.5'
   const xForwardedFor = clientHeaders['x-forwarded-for']
   if (xForwardedFor) {
-    headers['X-Forwarded-For'] = xForwardedFor
+    headers['x-forwarded-for'] = xForwardedFor
   }
   const userAgent = clientHeaders['user-agent']
   if (userAgent) {
     const newUserAgent = config.requestIdentifier && / windows | mac | android | ios /gi.test(userAgent) && process.env.npm_package_version ? `${userAgent} MWBrowser/${process.env.npm_package_version}` : userAgent
-    headers['User-Agent'] = config.customUserAgent && config.customUserAgentValue ? config.customUserAgentValue : newUserAgent
+    headers['user-agent'] = config.customUserAgent && config.customUserAgentValue ? config.customUserAgentValue : newUserAgent
   }
-  const options = {url: url, headers: headers, timeout: timeout, proxy: proxyURL}
-  console.info(options)
+  const options = {url: url, headers: headers, timeout: timeout}
 
   const html = await request(options)
 
@@ -134,8 +135,14 @@ async function obtainSearchResult ({id, url}, headers) {
 
   // 过滤
   const originalCount = items.length
-  if (config.filterBare) {
-    items = items.filter((item) => !isFilter(item.name.replace(/ /g, '')))
+  if (config.filterBare || config.filterEmpty) {
+    items = items.filter((item) => {
+      if (config.filterBare) {
+        return !isFilter(item.name.replace(/ /g, ''))
+      } else if (config.filterEmpty) {
+        return typeof item.size === 'number' && item.size > 0
+      }
+    })
   }
 
   return {originalCount, items}
@@ -244,16 +251,21 @@ function parseDetailDocument (document, expression) {
 async function loadRuleByURL () {
   const url = config.ruleUrl
   let rule
-  if (url.startsWith('http')) {
-    // 如果是网络文件
-    console.info('获取网络规则文件', url)
-    rule = await request(url, {timeout: 8000, json: true})
-  } else {
-    console.info('读取本地规则文件', url)
-    rule = JSON.parse(fs.readFileSync(url))
-  }
-  if (!Array.isArray(rule) || rule.length <= 0) {
-    throw new Error('规则格式不正确')
+  try {
+    if (url.startsWith('http')) {
+      // 如果是网络文件
+      console.info('获取网络规则文件', url)
+      rule = await request(url, {timeout: 8000, json: true})
+    } else {
+      console.info('读取本地规则文件', url)
+      rule = JSON.parse(fs.readFileSync(url))
+    }
+    if (!Array.isArray(rule) || rule.length <= 0) {
+      throw new Error('规则格式不正确')
+    }
+  } catch (e) {
+    console.error(e.message, '规则加载失败，将使用内置规则')
+    rule = require('../../rule.json')
   }
   cacheManager.set('rule_json', JSON.stringify(rule))
 
@@ -269,31 +281,6 @@ async function getRule () {
   return rule
 }
 
-function getProxyURL (newConfig) {
-  return newConfig.proxy ? `${newConfig.proxyType}://${newConfig.proxyHost}:${newConfig.proxyPort}` : null
-}
-
-async function getProxyNetworkInfo (config) {
-  let proxyURL = getProxyURL(config)
-  const ipOptions = {url: 'https://gip.dog', proxy: proxyURL, timeout: 5000, headers: {'User-Agent': 'curl'}}
-  const googleOptions = {url: 'https://www.google.com', proxy: proxyURL, timeout: 5000}
-  console.info('测试代理', proxyURL)
-  let googleTest = false
-  let info
-  const start = Date.now()
-  try {
-    const google = await request(googleOptions)
-    console.log(google)
-    googleTest = google.length > 0
-    info = await request(ipOptions)
-    console.log(info)
-  } catch (e) {
-    console.error(e.message)
-  }
-  const time = Date.now() - start
-  return {info, test: googleTest, time}
-}
-
 module.exports = {
   applyConfig,
   loadRuleByURL,
@@ -302,6 +289,5 @@ module.exports = {
   clearCache,
   makeupSearchOption,
   obtainDetailResult,
-  asyncCacheSearchResult,
-  getProxyNetworkInfo
+  asyncCacheSearchResult
 }

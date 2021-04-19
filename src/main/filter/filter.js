@@ -1,19 +1,25 @@
-// https://github.com/aojiaotage/text-censor
-
 const path = require('path')
 const fs = require('fs')
-const iconv = require('iconv-lite')
 
 const map = {}
+let load = false
 
-function initialize () {
-  const original = Buffer.from(fs.readFileSync(path.resolve(__dirname, './keywords.txt'), 'utf-8'), 'base64')
+const isDev = process.env.NODE_ENV === 'development'
+
+async function loadFilterData () {
+  if (load) {
+    return
+  }
+  load = true
+  const file = isDev ? path.resolve('static/keywords.txt') : path.resolve(__dirname, './static/keywords.txt')
+  const original = Buffer.from(fs.readFileSync(file, 'utf-8'), 'base64')
   const words = original.toString().split('\n')
   words.forEach((line) => {
     if (line) {
       addWord(line)
     }
   })
+  console.info('加载词条%d条', words.length)
 }
 
 function addWord (word) {
@@ -83,5 +89,5 @@ function isFilter (s, cb) {
 }
 
 module.exports = {
-  initialize, isFilter
+  loadFilterData, isFilter
 }

@@ -18,6 +18,7 @@ if (process.env.NODE_ENV !== 'development') {
 // 关闭安全警告
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = true
 
+let quitApp = false
 let mainWindow
 const winURL = process.env.NODE_ENV === 'development'
   ? `http://localhost:9080`
@@ -56,7 +57,17 @@ function createWindow () {
   registerMenu(mainWindow)
 
   mainWindow.loadURL(winURL)
-  mainWindow.on('closed', () => {
+
+  mainWindow.on('close', (e) => {
+    // 不是mac 或者 已标志退出
+    if (process.platform !== 'darwin' || quitApp) {
+      mainWindow = null
+    } else {
+      e.preventDefault()
+      mainWindow.hide()
+    }
+  })
+  mainWindow.on('closed', (e) => {
     mainWindow = null
   })
   registerServer()
@@ -79,7 +90,15 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (mainWindow === null) {
     createWindow()
+  } else {
+    if (!mainWindow.isVisible()) {
+      mainWindow.show()
+    }
   }
+})
+
+app.on('before-quit', () => {
+  quitApp = true
 })
 
 /**

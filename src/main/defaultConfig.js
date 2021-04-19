@@ -13,12 +13,17 @@ module.exports = function () {
     // 是否显示源站入口
     showSourceLink: false,
     // 过滤
-    filterBare: true,
+    filterBare: false,
+    filterEmpty: false,
+    // 自定义服务映射端口
+    customServerPort: false,
+    customServerPortValue: null,
     // 使用代理
     proxy: false,
-    proxyType: 'http',
+    // http|socks5
+    proxyType: 'socks5',
     proxyHost: '127.0.0.1',
-    proxyPort: 1087,
+    proxyPort: 1080,
     // 是否启用预加载 启用后会预加载下一页和下一个源站
     preload: true,
     // 缓存过期时间
